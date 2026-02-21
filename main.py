@@ -1482,8 +1482,8 @@ async def dmrole_command(ctx, *args):
             await ctx.send(f"Invalid role ID: {arg}", ephemeral=True)
             return
     
-    # The last argument is the message (rejoin all remaining args as message)
-    message = " ".join(args_list[-1:])
+    # The last argument is the message (join all remaining args as message)
+    message = " ".join(args_list[len(role_ids):])
     
     # Check for inappropriate words
     if contains_inappropriate_words(message):
@@ -1504,12 +1504,15 @@ async def dmrole_command(ctx, *args):
         return
     
     # Get members who have ANY of the specified roles
+    # We iterate through the roles to get members instead of guild.members
+    # which may not be fully cached
     target_members = []
-    for member in guild.members:
-        for role in member.roles:
-            if role.id in role_ids:
-                target_members.append(member)
-                break  # No need to check other roles for this member
+    for role_id in role_ids:
+        role = guild.get_role(role_id)
+        if role:
+            for member in role.members:
+                if member not in target_members:
+                    target_members.append(member)
     
     if not target_members:
         await ctx.send("⚠️ No members found with the specified role(s).", ephemeral=True)
