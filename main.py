@@ -18,6 +18,18 @@ MANAGEMENT_ROLES = [
     1470596818298601567
 ]
 
+# Role IDs permitted to use role command
+ROLE_MANAGEMENT_ROLES = [
+    1470596840369164288,
+    1470596832794251408,
+    1470596825575854223,
+    1470596818298601567,
+    1470596865601966203
+]
+
+# Role ID permitted to use dmuser command (only this one)
+DMUSER_ROLE_ID = 1470596818298601567
+
 # Session role ID to ping
 SESSION_ROLE_ID = 1470597003292573787
 
@@ -59,6 +71,9 @@ class SessionState:
 
 session_state = SessionState()
 
+# Dictionary to track session panel message IDs to their initiators
+session_panel_messages = {}  # message_id -> initiator_id
+
 def has_management_role(member):
     """Check if member has any of the permitted management roles"""
     if member is None:
@@ -67,6 +82,51 @@ def has_management_role(member):
         if role.id in MANAGEMENT_ROLES:
             return True
     return False
+
+def has_dmuser_role(member):
+    """Check if member has the dmuser role"""
+    if member is None:
+        return False
+    for role in member.roles:
+        if role.id == DMUSER_ROLE_ID:
+            return True
+    return False
+
+def has_role_management_role(member):
+    """Check if member has any of the permitted role management roles"""
+    if member is None:
+        return False
+    for role in member.roles:
+        if role.id in ROLE_MANAGEMENT_ROLES:
+            return True
+    return False
+
+def can_modify_role(member, target_member, guild):
+    """Check if member can modify target_member's role based on hierarchy"""
+    if member is None or target_member is None or guild is None:
+        return False
+    
+    # Get member's highest role
+    member_highest_role = None
+    for role in member.roles:
+        if member_highest_role is None or role.position > member_highest_role.position:
+            member_highest_role = role
+    
+    # Get target's highest role
+    target_highest_role = None
+    for role in target_member.roles:
+        if target_highest_role is None or role.position > target_highest_role.position:
+            target_highest_role = role
+    
+    # If target has no roles, member can always modify
+    if target_highest_role is None:
+        return True
+    
+    # Member needs to have a higher role than target
+    if member_highest_role is None:
+        return False
+    
+    return member_highest_role.position > target_highest_role.position
 
 def can_start_vote():
     """Check if a vote can be started based on cooldown"""
@@ -128,8 +188,9 @@ bot = commands.Bot(command_prefix=">", intents=intents)
 
 # ============== SESSION VIEW (BUTTONS) ==============
 class SessionView(ui.View):
-    def __init__(self):
+    def __init__(self, initiator_id: int = None):
         super().__init__(timeout=None)
+        self.initiator_id = initiator_id
         
         # Session Vote button
         self.vote_btn = ui.Button(
@@ -185,7 +246,23 @@ class SessionView(ui.View):
         self.history_btn.callback = self.history_callback
         self.add_item(self.history_btn)
     
+    async def check_initiator(self, interaction: nextcord.Interaction) -> bool:
+        """Check if the interaction is from the original initiator"""
+        if self.initiator_id is None:
+            return True  # No restriction if no initiator set
+        if interaction.user.id != self.initiator_id:
+            await interaction.response.send_message(
+                f"{interaction.user.mention}: Only the person who opened this panel can use it!",
+                ephemeral=True
+            )
+            return False
+        return True
+    
     async def vote_callback(self, interaction: nextcord.Interaction):
+        # Check if user is the initiator
+        if not await self.check_initiator(interaction):
+            return
+        
         # Check if user has management role
         if not has_management_role(interaction.user):
             await interaction.response.send_message(f"{interaction.user.mention}: You don't have permission to use this!", ephemeral=True)
@@ -203,6 +280,10 @@ class SessionView(ui.View):
         await interaction.response.send_modal(modal)
     
     async def start_callback(self, interaction: nextcord.Interaction):
+        # Check if user is the initiator
+        if not await self.check_initiator(interaction):
+            return
+        
         # Check if user has management role
         if not has_management_role(interaction.user):
             await interaction.response.send_message(f"{interaction.user.mention}: You don't have permission to use this!", ephemeral=True)
@@ -271,6 +352,10 @@ class SessionView(ui.View):
         await interaction.response.send_message("Session has been started!", ephemeral=True)
     
     async def shutdown_callback(self, interaction: nextcord.Interaction):
+        # Check if user is the initiator
+        if not await self.check_initiator(interaction):
+            return
+        
         # Check if user has management role
         if not has_management_role(interaction.user):
             await interaction.response.send_message(f"{interaction.user.mention}: You don't have permission to use this!", ephemeral=True)
@@ -311,6 +396,10 @@ class SessionView(ui.View):
         await interaction.response.send_message("Session has been shutdown!", ephemeral=True)
     
     async def low_callback(self, interaction: nextcord.Interaction):
+        # Check if user is the initiator
+        if not await self.check_initiator(interaction):
+            return
+        
         # Check if user has management role
         if not has_management_role(interaction.user):
             await interaction.response.send_message(f"{interaction.user.mention}: You don't have permission to use this!", ephemeral=True)
@@ -336,6 +425,10 @@ class SessionView(ui.View):
         await interaction.response.send_message("Session Low message sent!", ephemeral=True)
     
     async def full_callback(self, interaction: nextcord.Interaction):
+        # Check if user is the initiator
+        if not await self.check_initiator(interaction):
+            return
+        
         # Check if user has management role
         if not has_management_role(interaction.user):
             await interaction.response.send_message(f"{interaction.user.mention}: You don't have permission to use this!", ephemeral=True)
@@ -355,6 +448,10 @@ class SessionView(ui.View):
         await interaction.response.send_message("Session Full message sent!", ephemeral=True)
     
     async def history_callback(self, interaction: nextcord.Interaction):
+        # Check if user is the initiator
+        if not await self.check_initiator(interaction):
+            return
+        
         # Check if user has management role
         if not has_management_role(interaction.user):
             await interaction.response.send_message(f"{interaction.user.mention}: You don't have permission to use this!", ephemeral=True)
@@ -586,6 +683,19 @@ async def on_interaction(interaction: nextcord.Interaction):
         return
     
     custom_id = interaction.data.custom_id
+    
+    # Get the message ID from the interaction
+    message_id = interaction.message.id if interaction.message else None
+    
+    # Check if this is a session panel and verify initiator
+    if message_id and message_id in session_panel_messages:
+        initiator_id = session_panel_messages[message_id]
+        if interaction.user.id != initiator_id:
+            await interaction.response.send_message(
+                f"{interaction.user.mention}: Only the person who opened this panel can use it!",
+                ephemeral=True
+            )
+            return
     
     # Check if user has management role
     if not has_management_role(interaction.user):
@@ -911,20 +1021,19 @@ async def on_ready():
     try:
         guild = bot.get_guild(GUILD_ID)
         if guild:
-            # Sync all slash commands to this guild
-            bot.add_view(SessionView())
-            await bot.sync_application_commands(guild=guild)
-            print(f"✅ Slash commands synced to guild: {guild.name}")
+            # Clear and register all application commands
+            bot.clear_application_commands(guild_id=GUILD_ID)
+            
+            # Register slash commands manually
+            await bot.register_application_commands(guild=guild)
+            print(f"✅ Slash commands registered to guild: {guild.name}")
         else:
-            print(f"❌ Guild not found for syncing!")
-            # Still add the view
-            bot.add_view(SessionView())
+            print(f"❌ Guild not found for command registration!")
     except Exception as e:
-        print(f"⚠️ Error syncing commands: {e}")
-        bot.add_view(SessionView())
+        print(f"⚠️ Error registering commands: {e}")
     
-    # Register session view persistently
-    bot.add_view(SessionView())
+# Register session view persistently
+    bot.add_view(SessionView(initiator_id=None))
     
     # Start auto-shutdown task
     asyncio.create_task(check_auto_shutdown())
@@ -937,25 +1046,15 @@ async def on_connect():
 
 # ============== COMMANDS ==============
 
-# >sessions command - message command that deletes user message and shows session panel
+# >sessions command - message command that shows session panel as a reply
 @bot.command(name="sessions")
 async def sessions_command(ctx):
     """Show session management panel (for management only)"""
     # Check if user has permitted role
     if not has_management_role(ctx.author):
-        try:
-            await ctx.message.delete()
-        except:
-            pass
-        error_msg = await ctx.send(f"{ctx.author.mention}: As you are not Management, you are not permitted to use this command ⚠️.")
+        error_msg = await ctx.reply(f"{ctx.author.mention}: As you are not Management, you are not permitted to use this command ⚠️.")
         await error_msg.delete(delay=10)
         return
-    
-    # Delete the user's message that triggered the command
-    try:
-        await ctx.message.delete()
-    except:
-        pass
     
     # Create session management embed
     embed = nextcord.Embed(
@@ -971,9 +1070,8 @@ async def sessions_command(ctx):
 > - Session Full [Notifies the server that the session is full]
 """
     
-    view = SessionView()
-    # Send as ephemeral/private message
-    await ctx.send(embed=embed, view=view, ephemeral=True)
+    view = SessionView(initiator_id=ctx.author.id)
+    # Send as reply to user and store message ID
 
 # /sessions slash command
 @bot.slash_command(name="sessions", description="Manage session panel", guild_ids=[GUILD_ID])
@@ -1001,8 +1099,13 @@ async def slash_sessions(interaction: nextcord.Interaction):
 > - Session Full [Notifies the server that the session is full]
 """
     
-    view = SessionView()
-    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+    view = SessionView(initiator_id=interaction.user.id)
+    response_msg = await interaction.response.send_message(embed=embed, view=view)
+    # Store message ID for the panel - need to fetch it from the original message
+    if hasattr(interaction, 'message') and interaction.message:
+        session_panel_messages[interaction.message.id] = interaction.user.id
+    elif hasattr(response_msg, 'id'):
+        session_panel_messages[response_msg.id] = interaction.user.id
 
 # /say slash command (replaces /message)
 @bot.slash_command(name="say", description="Send a message via the bot", guild_ids=[GUILD_ID])
@@ -1090,6 +1193,100 @@ async def message_command(ctx, *, message_text: str = None):
         pass
     
     await ctx.send(message_text)
+
+# ># >dmuser command - Send a DM to a user (only for specific role)
+@bot.command(name="dmuser")
+async def dmuser_command(ctx, user: nextcord.Member, *, message: str):
+    """DM a user with a message (requires specific role)"""
+    # Check if user has dmuser role
+    if not has_dmuser_role(ctx.author):
+        try:
+            await ctx.message.delete()
+        except:
+            pass
+        error_msg = await ctx.send(f"{ctx.author.mention}: As you are not Management, you are not permitted to use this command ⚠️.")
+        await error_msg.delete(delay=10)
+        return
+    
+    # Delete the user's command message
+    try:
+        await ctx.message.delete()
+    except:
+        pass
+    
+    # Send DM to the target user
+    try:
+        dm_embed = nextcord.Embed(
+            color=0x47a88f,
+            title="Message from LCSRC Management"
+        )
+        dm_embed.description = f"**Message:** {message}\n\n**Sent by:** {ctx.author.display_name}"
+        await user.send(embed=dm_embed)
+        
+        # Confirm to the command user
+        confirm_msg = await ctx.send(f"✅ DM sent to {user.display_name}!")
+        await confirm_msg.delete(delay=5)
+    except:
+        error_msg = await ctx.send(f"❌ Could not send DM to {user.display_name}. They may have DMs disabled.")
+        await error_msg.delete(delay=10)
+
+# >role command - Add or remove a role from a user
+@bot.command(name="role")
+async def role_command(ctx, user: nextcord.Member, role: nextcord.Role):
+    """Add or remove a role from a user (for management only)"""
+    # Check if user has permitted role
+    if not has_management_role(ctx.author):
+        try:
+            await ctx.message.delete()
+        except:
+            pass
+        error_msg = await ctx.send(f"{ctx.author.mention}: As you are not Management, you are not permitted to use this command ⚠️.")
+        await error_msg.delete(delay=10)
+        return
+    
+    # Delete the user's command message
+    try:
+        await ctx.message.delete()
+    except:
+        pass
+    
+    # Check if user has the role
+    if role in user.roles:
+        # Remove the role
+        await user.remove_roles(role)
+        action = "removed"
+        response = f"-role {role.name} removed."
+        
+        # Send DM to user about role removal
+        try:
+            dm_embed = nextcord.Embed(
+                color=0xff6b6b,
+                title="Role Removed"
+            )
+            dm_embed.description = f"**Role:** {role.name}\n\n**Action taken by:** {ctx.author.display_name}"
+            await user.send(embed=dm_embed)
+        except:
+            pass  # If DM fails, continue anyway
+    else:
+        # Add the role
+        await user.add_roles(role)
+        action = "added"
+        response = f"+role {role.name} added."
+        
+        # Send DM to user about role addition
+        try:
+            dm_embed = nextcord.Embed(
+                color=0x47a88f,
+                title="Role Added"
+            )
+            dm_embed.description = f"**Role:** {role.name}\n\n**Action taken by:** {ctx.author.display_name}"
+            await user.send(embed=dm_embed)
+        except:
+            pass  # If DM fails, continue anyway
+    
+    # Confirm the action
+    confirm_msg = await ctx.send(response)
+    await confirm_msg.delete(delay=10)
 
 # Run the bot
 bot.run(os.getenv("TOKEN"), reconnect=True)
