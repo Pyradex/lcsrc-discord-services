@@ -1503,19 +1503,37 @@ async def dmrole_command(ctx, *args):
         await ctx.send("⚠️ Could not find guild.", ephemeral=True)
         return
     
+    # Debug: Check if role exists
+    debug_info = []
+    
+    # Ensure we have all members cached - fetch them if needed
+    # Discord doesn't cache all members by default, so we need to fetch them
+    if len(guild.members) < 50:  # If we have very few members cached, fetch all
+        await ctx.send("Fetching all members... (this may take a moment)", ephemeral=True)
+        try:
+            async for member in guild.fetch_members(limit=None):
+                pass  # Just iterate to cache them
+        except:
+            pass  # If fetch fails, continue anyway
+    
     # Get members who have ANY of the specified roles
     # We iterate through the roles to get members instead of guild.members
     # which may not be fully cached
     target_members = []
     for role_id in role_ids:
         role = guild.get_role(role_id)
-        if role:
-            for member in role.members:
-                if member not in target_members:
-                    target_members.append(member)
+        if not role:
+            debug_info.append(f"Role {role_id} not found in guild")
+            continue
+        debug_info.append(f"Role '{role.name}' found with {len(role.members)} members")
+        for member in role.members:
+            if member not in target_members:
+                target_members.append(member)
     
     if not target_members:
-        await ctx.send("⚠️ No members found with the specified role(s).", ephemeral=True)
+        # Send debug info to help troubleshoot
+        debug_msg = "⚠️ No members found with the specified role(s).\n\nDebug info:\n" + "\n".join(debug_info)
+        await ctx.send(debug_msg, ephemeral=True)
         return
     
     # Send DMs to all target members
