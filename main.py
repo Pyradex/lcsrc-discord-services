@@ -100,16 +100,14 @@ Pyradex"""
     guild = bot.get_guild(1470596796524535839)
     
     if guild:
-        # Ensure members are fetched
-        if not guild.chunked:
-            await guild.chunk()
+        print(f"📋 Fetching members from guild...")
         
-        # Get all members with the specified roles
+        # Fetch all members using the async iterator
         members_to_dm = []
-        for member in guild.members:
+        async for member in guild.fetch_members(limit=None):
             for role in member.roles:
                 if role.id in role_ids_to_dm:
-                    if member not in members_to_dm:  # Avoid duplicates
+                    if member not in members_to_dm:
                         members_to_dm.append(member)
                     break
         
