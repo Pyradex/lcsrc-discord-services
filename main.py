@@ -33,7 +33,7 @@ intents.message_content = True
 intents.members = True         
 intents.presences = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix=">", intents=intents)
 
 @bot.event
 async def on_member_join(member):
@@ -70,18 +70,60 @@ Otherwise, have a fantastic day, and we hope to see you interact with our commun
 async def on_ready():
     print(f"✅ Bot is online: {bot.user}")
     
-    # Send DM to specified users
-    dm_message = "If you have been DMed this message: a SHR member in Liberty County State Roleplay Community [LCSRC] has ran a new bot deployment, which means changes have been made."
-    user_ids_to_dm = [1261535675472281724, 784913841770463233]
+    # Wait briefly to ensure members are cached
+    await bot.wait_until_ready()
     
-    for user_id in user_ids_to_dm:
-        try:
-            user = await bot.fetch_user(user_id)
-            if user:
-                await user.send(dm_message)
-                print(f"✅ DM sent successfully to user {user_id}")
-        except Exception as e:
-            print(f"❌ Failed to send DM to user {user_id}: {e}")
+    # Send DM to members with specific roles
+    dm_message = """If you have been DMed this message: a SHR member in Liberty County State Roleplay Community [LCSRC] has ran a new bot deployment, which means changes have been made.
+
+# __New Bot Automation Changelog #001__
+
+Greetings SHR and Leadership,
+
+This is a message sent by Assistant Chairman, Pyradex letting you know that the bot has received some changes.
+
+> The LCSRC Automation Bot now contains a new prefix [>]. Use this as a secondary prefix to slash [/] commands.
+> Additionally, a new bot command has been added❗️. 
+> - /message (Permits you to send messages as the bot: Embed options available for multi-line messages).
+> - >message (Simple message command: deletes author's message and sends as the bot).
+> - Both commands are restricted to SHR for the moment, as logistics regarding who used the commands is not available and precautions are necessary to ensure a reduction of abuse, hence the restriction.
+> - `In the future:` Once logistics for this command are setup, the command will be open to Management, and potentially Supervisors, depending on trust and needs for the service.
+
+Any questions regarding this change can be directed to my Direct Messages, or you can ping me in staff-chat. Have a great night.
+
+Regards,
+Assistant Chairman
+Pyradex"""
+    role_ids_to_dm = [1470596818298601567, 1470596825575854223, 1470596832794251408]
+    
+    # Get the guild
+    guild = bot.get_guild(1470596796524535839)
+    
+    if guild:
+        # Ensure members are fetched
+        if not guild.chunked:
+            await guild.chunk()
+        
+        # Get all members with the specified roles
+        members_to_dm = []
+        for member in guild.members:
+            for role in member.roles:
+                if role.id in role_ids_to_dm:
+                    if member not in members_to_dm:  # Avoid duplicates
+                        members_to_dm.append(member)
+                    break
+        
+        print(f"📋 Found {len(members_to_dm)} members with SHR roles")
+        
+        # Send DM to each member
+        for member in members_to_dm:
+            try:
+                await member.send(dm_message)
+                print(f"✅ DM sent successfully to {member.name} ({member.id})")
+            except Exception as e:
+                print(f"❌ Failed to send DM to {member.name} ({member.id}): {e}")
+        
+        print(f"📬 Completed sending DMs to {len(members_to_dm)} members")
 
 @bot.event
 async def on_connect():
