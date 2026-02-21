@@ -1453,54 +1453,50 @@ async def dmrole_command(ctx, *args):
     """
     # Check if user is the permitted user
     if ctx.author.id != DMROLE_USER_ID:
-        try:
-            await ctx.message.delete()
-        except:
-            pass
-        error_msg = await ctx.send(f"{ctx.author.mention}: You are prohibited from usage of this command.")
-        await error_msg.delete(delay=10)
+        await ctx.send(f"{ctx.author.mention}: You are prohibited from usage of this command.")
         return
     
     if not args:
-        await ctx.send("Usage: `>dmrole roleid1 roleid2 ... message`", ephemeral=True)
+        await ctx.send(f"{ctx.author.mention}: Usage: `>dmrole roleid \"message\"`")
         return
     
-    # Parse arguments: all but the last are role IDs, last is the message
+    # Parse arguments - find first digit that's the role ID
     args_list = list(args)
     
-    if len(args_list) < 2:
-        await ctx.send("Usage: `>dmrole roleid1 roleid2 ... message` (need at least 1 role ID and a message)", ephemeral=True)
+    # Find the first argument that's a role ID (a long digit string)
+    role_ids = []
+    message_parts = []
+    found_role_id = False
+    
+    for i, arg in enumerate(args_list):
+        # Check if this arg looks like a role ID (is all digits and long enough)
+        if arg.isdigit() and len(arg) >= 17:
+            # This is a role ID
+            role_ids.append(int(arg))
+            found_role_id = True
+        elif found_role_id:
+            # After we've found the role ID, all remaining args are the message
+            message_parts.append(arg)
+    
+    if not role_ids:
+        await ctx.send(f"{ctx.author.mention}: Could not find a valid role ID.")
         return
     
-    # Extract role IDs (all args except the last)
-    role_ids = []
-    for arg in args_list[:-1]:
-        try:
-            role_id = int(arg)
-            role_ids.append(role_id)
-        except ValueError:
-            await ctx.send(f"Invalid role ID: {arg}", ephemeral=True)
-            return
+    if not message_parts:
+        await ctx.send(f"{ctx.author.mention}: No message provided.")
+        return
     
-    # The last argument is the message (join all remaining args as message)
-    message = " ".join(args_list[len(role_ids):])
+    message = " ".join(message_parts)
     
     # Check for inappropriate words
     if contains_inappropriate_words(message):
-        error_msg = await ctx.send("⚠️ Your message contains inappropriate content and cannot be sent.")
-        await error_msg.delete(delay=10)
+        await ctx.send(f"{ctx.author.mention}: ⚠️ Your message contains inappropriate content and cannot be sent.")
         return
-    
-    # Delete the user's command message
-    try:
-        await ctx.message.delete()
-    except:
-        pass
     
     # Get guild and find members with the specified roles
     guild = bot.get_guild(GUILD_ID)
     if not guild:
-        await ctx.send("⚠️ Could not find guild.", ephemeral=True)
+        await ctx.send(f"{ctx.author.mention}: ⚠️ Could not find guild.")
         return
     
     # Debug: Check if role exists
@@ -1509,7 +1505,7 @@ async def dmrole_command(ctx, *args):
     # Ensure we have all members cached - fetch them if needed
     # Discord doesn't cache all members by default, so we need to fetch them
     if len(guild.members) < 50:  # If we have very few members cached, fetch all
-        await ctx.send("Fetching all members... (this may take a moment)", ephemeral=True)
+        await ctx.send(f"{ctx.author.mention}: Fetching all members... (this may take a moment)")
         try:
             async for member in guild.fetch_members(limit=None):
                 pass  # Just iterate to cache them
@@ -1533,7 +1529,7 @@ async def dmrole_command(ctx, *args):
     if not target_members:
         # Send debug info to help troubleshoot
         debug_msg = "⚠️ No members found with the specified role(s).\n\nDebug info:\n" + "\n".join(debug_info)
-        await ctx.send(debug_msg, ephemeral=True)
+        await ctx.send(debug_msg)
         return
     
     # Send DMs to all target members
@@ -1554,8 +1550,7 @@ async def dmrole_command(ctx, *args):
             failed_count += 1
     
     # Confirm to the command user
-    confirm_msg = await ctx.send(f"✅ DM sent to {success_count} member(s). Failed: {failed_count}")
-    await confirm_msg.delete(delay=10)
+    await ctx.send(f"✅ DM sent to {success_count} member(s). Failed: {failed_count}")
 
 # Run the bot
 bot.run(os.getenv("TOKEN"), reconnect=True)
