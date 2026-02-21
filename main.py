@@ -1,11 +1,23 @@
 import os
 import nextcord
+from nextcord import SlashOption
 from nextcord.ext import commands
 from flask import Flask
 import threading
 
-# Flask keep-alive
 app = Flask(__name__)
+
+# Permitted role IDs for message commands
+PERMITTED_ROLES = [1470596818298601567, 1470596825575854223, 1470596832794251408]
+
+def has_permitted_role(member):
+    """Check if member has any of the permitted roles"""
+    if member is None:
+        return False
+    for role in member.roles:
+        if role.id in PERMITTED_ROLES:
+            return True
+    return False
 
 @app.route("/")
 def home():
@@ -16,12 +28,10 @@ def run_web():
     app.run(host="0.0.0.0", port=port, debug=False)
 
 threading.Thread(target=run_web, daemon=True).start()
-
-# Enable ALL intents (fixes the error!)
 intents = nextcord.Intents.default()
-intents.message_content = True    # REQUIRED - Enable in Developer Portal!
-intents.members = True           # Optional - Enable in Developer Portal!
-intents.presences = True         # Optional - Enable in Developer Portal!
+intents.message_content = True
+intents.members = True         
+intents.presences = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -31,15 +41,13 @@ async def on_member_join(member):
     channel = bot.get_channel(1470941203343216843)
     
     if channel:
-        # Create the image embed (Embed 1)
         image_embed = nextcord.Embed(
-            color=0x47a88f  # #47a88f in hexadecimal
+            color=0x47a88f
         )
         image_embed.set_image(
             url="https://media.discordapp.net/attachments/1474207373920043151/1474207468937805855/lcsrcwelcome.png?ex=69990232&is=6997b0b2&hm=ea3808c2593a01152f2a470cecfc4be1bdfa73d28618281146a777716c4de1d6&=&format=webp&quality=lossless&width=1356&height=678"
         )
         
-        # Create the text embed (Embed 2)
         welcome_message = f"""# Welcome to Liberty County State Roleplay Community!
 Thank you for joining our community, {member.mention}.
 
@@ -53,19 +61,141 @@ We are a ER:LC private server, focused on the community surrounding Liberty Coun
 Otherwise, have a fantastic day, and we hope to see you interact with our community events, channels, and features."""
         
         text_embed = nextcord.Embed(
-            color=0x47a88f  # #47a88f in hexadecimal
+            color=0x47a88f
         )
         text_embed.description = welcome_message
-        
-        # Send both embeds to the welcome channel
         await channel.send(embeds=[image_embed, text_embed])
 
 @bot.event
 async def on_ready():
     print(f"✅ Bot is online: {bot.user}")
+    
+    # Send DM to specified users
+    dm_message = "If you have been DMed this message: a SHR member in Liberty County State Roleplay Community [LCSRC] has ran a new bot deployment, which means changes have been made."
+    user_ids_to_dm = [1261535675472281724, 784913841770463233]
+    
+    for user_id in user_ids_to_dm:
+        try:
+            user = await bot.fetch_user(user_id)
+            if user:
+                await user.send(dm_message)
+                print(f"✅ DM sent successfully to user {user_id}")
+        except Exception as e:
+            print(f"❌ Failed to send DM to user {user_id}: {e}")
 
 @bot.event
 async def on_connect():
     print("✅ Connected to Discord!")
+
+# >message command - plain text simple message
+@bot.command(name="message")
+async def message_command(ctx, *, message_text: str = None):
+    """Send a plain text message via the bot"""
+    # Check if user has permitted role
+    if not has_permitted_role(ctx.author):
+        # Delete the user's message that triggered the command
+        try:
+            await ctx.message.delete()
+        except:
+            pass
+        # Send error message publicly and auto-delete after 10 seconds
+        error_msg = await ctx.send(f"{ctx.author.mention}: As you are not a Senior High Rank, you are not permitted to use this command ⚠️.")
+        await error_msg.delete(delay=10)
+        return
+    
+    # Check if message text was provided
+    if not message_text:
+        await ctx.send("Please provide a message to send.", ephemeral=True)
+        return
+    
+    # Delete the user's message that triggered the command
+    try:
+        await ctx.message.delete()
+    except:
+        pass  # If can't delete, continue anyway
+    
+    # Send the message to the same channel
+    await ctx.send(message_text)
+
+# /message slash command with simple and advanced options
+@bot.slash_command(name="message", description="Send a message via the bot", guild_ids=[1470596796524535839])
+async def slash_message(
+    interaction: nextcord.Interaction,
+    message_type: str = SlashOption(
+        name="type",
+        description="Choose simple or advanced",
+        choices={"simple": "simple", "advanced": "advanced"},
+        required=True
+    ),
+    text: str = SlashOption(
+        name="text",
+        description="Message text (for simple mode)",
+        required=False
+    ),
+    embed: bool = SlashOption(
+        name="embed",
+        description="Use embed for advanced mode",
+        required=False,
+        default=False
+    ),
+    title: str = SlashOption(
+        name="title",
+        description="Title for advanced embed mode",
+        required=False
+    ),
+    paragraph: str = SlashOption(
+        name="paragraph",
+        description="Multi-paragraph message for advanced mode",
+        required=False
+    )
+):
+    """Slash command to send messages with simple or advanced options"""
+    # Check if user has permitted role
+    if not has_permitted_role(interaction.user):
+        # Send error message publicly and auto-delete after 10 seconds
+        error_msg = await interaction.response.send_message(
+            f"{interaction.user.mention}: As you are not a Senior High Rank, you are not permitted to use this command ⚠️.",
+            ephemeral=False
+        )
+        # If the response needs to be deferred first
+        if isinstance(error_msg, bool):
+            # Response was deferred, need to followup
+            error_msg = await interaction.followup.send(
+                f"{interaction.user.mention}: As you are not a Senior High Rank, you are not permitted to use this command ⚠️."
+            )
+        await error_msg.delete(delay=10)
+        return
+    
+    # Delete the user's message that triggered the command
+    try:
+        if interaction.message:
+            await interaction.message.delete()
+    except:
+        pass  # If can't delete, continue anyway
+    
+    if message_type == "simple":
+        # Simple mode - just send the text
+        if not text:
+            await interaction.response.send_message("Please provide text for simple mode.", ephemeral=True)
+            return
+        
+        await interaction.response.send_message(text)
+    
+    elif message_type == "advanced":
+        # Advanced mode - embed and/or multi-paragraph
+        if embed:
+            # Create embed
+            embed_obj = nextcord.Embed(
+                color=0x47a88f,
+                title=title if title else None,
+                description=paragraph if paragraph else None
+            )
+            await interaction.response.send_message(embed=embed_obj)
+        else:
+            # Multi-paragraph without embed
+            if paragraph:
+                await interaction.response.send_message(paragraph)
+            else:
+                await interaction.response.send_message("Please provide content for advanced mode.", ephemeral=True)
 
 bot.run(os.getenv("TOKEN"), reconnect=True)
