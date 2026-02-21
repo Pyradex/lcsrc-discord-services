@@ -70,11 +70,12 @@ Otherwise, have a fantastic day, and we hope to see you interact with our commun
 async def on_ready():
     print(f"✅ Bot is online: {bot.user}")
     
-    # Wait briefly to ensure members are cached
-    await bot.wait_until_ready()
-    
-    # Send DM to members with specific roles
-    dm_message = """If you have been DMed this message: a SHR member in Liberty County State Roleplay Community [LCSRC] has ran a new bot deployment, which means changes have been made.
+    try:
+        # Wait briefly to ensure members are cached
+        await bot.wait_until_ready()
+        
+        # Send DM to members with specific roles
+        dm_message = """If you have been DMed this message: a SHR member in Liberty County State Roleplay Community [LCSRC] has ran a new bot deployment, which means changes have been made.
 
 # __New Bot Automation Changelog #001__
 
@@ -94,34 +95,46 @@ Any questions regarding this change can be directed to my Direct Messages, or yo
 Regards,
 Assistant Chairman
 Pyradex"""
-    role_ids_to_dm = [1470596818298601567, 1470596825575854223, 1470596832794251408]
-    
-    # Get the guild
-    guild = bot.get_guild(1470596796524535839)
-    
-    if guild:
-        print(f"📋 Fetching members from guild...")
+        role_ids_to_dm = [1470596842776559699]
         
-        # Fetch all members using the async iterator
-        members_to_dm = []
-        async for member in guild.fetch_members(limit=None):
-            for role in member.roles:
-                if role.id in role_ids_to_dm:
-                    if member not in members_to_dm:
-                        members_to_dm.append(member)
-                    break
+        # Get the guild
+        guild = bot.get_guild(1289789596238086194)
         
-        print(f"📋 Found {len(members_to_dm)} members with SHR roles")
-        
-        # Send DM to each member
-        for member in members_to_dm:
+        if guild:
+            print(f"📋 Guild found: {guild.name}")
+            print(f"📋 Fetching members from guild...")
+            
+            # Try to chunk members first
             try:
-                await member.send(dm_message)
-                print(f"✅ DM sent successfully to {member.name} ({member.id})")
+                await guild.chunk()
+                print(f"📋 Members chunked. Total members: {len(guild.members)}")
             except Exception as e:
-                print(f"❌ Failed to send DM to {member.name} ({member.id}): {e}")
-        
-        print(f"📬 Completed sending DMs to {len(members_to_dm)} members")
+                print(f"⚠️ Chunk error: {e}")
+            
+            # Get all members with the specified roles
+            members_to_dm = []
+            for member in guild.members:
+                for role in member.roles:
+                    if role.id in role_ids_to_dm:
+                        if member not in members_to_dm:
+                            members_to_dm.append(member)
+                        break
+            
+            print(f"📋 Found {len(members_to_dm)} members with SHR roles")
+            
+            # Send DM to each member
+            for member in members_to_dm:
+                try:
+                    await member.send(dm_message)
+                    print(f"✅ DM sent successfully to {member.name} ({member.id})")
+                except Exception as e:
+                    print(f"❌ Failed to send DM to {member.name} ({member.id}): {e}")
+            
+            print(f"📬 Completed sending DMs to {len(members_to_dm)} members")
+        else:
+            print(f"❌ Guild not found! Check guild ID.")
+    except Exception as e:
+        print(f"❌ Error in on_ready: {e}")
 
 @bot.event
 async def on_connect():
@@ -158,7 +171,7 @@ async def message_command(ctx, *, message_text: str = None):
     await ctx.send(message_text)
 
 # /message slash command with simple and advanced options
-@bot.slash_command(name="message", description="Send a message via the bot", guild_ids=[1470596796524535839])
+@bot.slash_command(name="message", description="Send a message via the bot", guild_ids=[1289789596238086194])
 async def slash_message(
     interaction: nextcord.Interaction,
     message_type: str = SlashOption(
