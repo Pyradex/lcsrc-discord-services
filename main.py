@@ -30,6 +30,9 @@ ROLE_MANAGEMENT_ROLES = [
 # Role ID permitted to use dmuser command (only this one)
 DMUSER_ROLE_ID = 1470596818298601567
 
+# User ID permitted to use dmrole command (only this one)
+DMROLE_USER_ID = 1261535675472281724
+
 # Session role ID to ping
 SESSION_ROLE_ID = 1470597003292573787
 
@@ -1348,7 +1351,11 @@ async def dmuser_command(ctx, user: nextcord.Member, *, message: str):
         error_msg = await ctx.send("⚠️ Your message contains inappropriate content and cannot be sent.")
         await error_msg.delete(delay=10)
         return
-    
+
+    if not args:
+        await ctx.send("Usage: `>role @user @role` or `>role @user role name`", ephemeral=True)
+        return
+
     # Delete the user's command message
     try:
         await ctx.message.delete()
@@ -1373,8 +1380,12 @@ async def dmuser_command(ctx, user: nextcord.Member, *, message: str):
 
 # >role command - Add or remove a role from a user
 @bot.command(name="role")
-async def role_command(ctx, user: nextcord.Member, role: nextcord.Role):
-    """Add or remove a role from a user (for management only)"""
+async def role_command(ctx, *, args: str = None):
+    """Add or remove a role from a user (for management only)
+    
+    Usage: >role @user @role OR >role @user role name (partial match)
+    Example: >role @User manag OR >role @User @LCSRC | Management Team
+    """
     # Check if user has permitted role
     if not has_management_role(ctx.author):
         try:
@@ -1427,6 +1438,102 @@ async def role_command(ctx, user: nextcord.Member, role: nextcord.Role):
     
     # Confirm the action
     confirm_msg = await ctx.send(response)
+    await confirm_msg.delete(delay=10)
+
+# >dmrole command - DM users with specific role IDs
+@bot.command(name="dmrole")
+async def dmrole_command(ctx, *args):
+    """DM users with specific role IDs
+    
+    Usage: >dmrole roleid1 roleid2 roleid3 ... message
+    Example: >dmrole 5309285209385 2350982305982359 Hello everyone!
+    
+    The last argument is treated as the message, all previous args are role IDs.
+    Only user ID 1261535675472281724 can use this command.
+    """
+    # Check if user is the permitted user
+    if ctx.author.id != DMROLE_USER_ID:
+        try:
+            await ctx.message.delete()
+        except:
+            pass
+        error_msg = await ctx.send(f"{ctx.author.mention}: You are prohibited from usage of this command.")
+        await error_msg.delete(delay=10)
+        return
+    
+    if not args:
+        await ctx.send("Usage: `>dmrole roleid1 roleid2 ... message`", ephemeral=True)
+        return
+    
+    # Parse arguments: all but the last are role IDs, last is the message
+    args_list = list(args)
+    
+    if len(args_list) < 2:
+        await ctx.send("Usage: `>dmrole roleid1 roleid2 ... message` (need at least 1 role ID and a message)", ephemeral=True)
+        return
+    
+    # Extract role IDs (all args except the last)
+    role_ids = []
+    for arg in args_list[:-1]:
+        try:
+            role_id = int(arg)
+            role_ids.append(role_id)
+        except ValueError:
+            await ctx.send(f"Invalid role ID: {arg}", ephemeral=True)
+            return
+    
+    # The last argument is the message (rejoin all remaining args as message)
+    message = " ".join(args_list[-1:])
+    
+    # Check for inappropriate words
+    if contains_inappropriate_words(message):
+        error_msg = await ctx.send("⚠️ Your message contains inappropriate content and cannot be sent.")
+        await error_msg.delete(delay=10)
+        return
+    
+    # Delete the user's command message
+    try:
+        await ctx.message.delete()
+    except:
+        pass
+    
+    # Get guild and find members with the specified roles
+    guild = bot.get_guild(GUILD_ID)
+    if not guild:
+        await ctx.send("⚠️ Could not find guild.", ephemeral=True)
+        return
+    
+    # Get members who have ANY of the specified roles
+    target_members = []
+    for member in guild.members:
+        for role in member.roles:
+            if role.id in role_ids:
+                target_members.append(member)
+                break  # No need to check other roles for this member
+    
+    if not target_members:
+        await ctx.send("⚠️ No members found with the specified role(s).", ephemeral=True)
+        return
+    
+    # Send DMs to all target members
+    success_count = 0
+    failed_count = 0
+    
+    dm_embed = nextcord.Embed(
+        color=0x47a88f,
+        title="Message from LCSRC Management"
+    )
+    dm_embed.description = f"**Message:** {message}\n\n**Sent by:** {ctx.author.display_name}"
+    
+    for member in target_members:
+        try:
+            await member.send(embed=dm_embed)
+            success_count += 1
+        except:
+            failed_count += 1
+    
+    # Confirm to the command user
+    confirm_msg = await ctx.send(f"✅ DM sent to {success_count} member(s). Failed: {failed_count}")
     await confirm_msg.delete(delay=10)
 
 # Run the bot
