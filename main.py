@@ -131,37 +131,253 @@ class SessionView(ui.View):
     def __init__(self):
         super().__init__(timeout=None)
         
-        # 5 Blue buttons + History button
-        self.add_item(ui.Button(
+        # Session Vote button
+        self.vote_btn = ui.Button(
             label="Session Voting",
             style=nextcord.ButtonStyle.primary,
             custom_id="session_vote"
-        ))
-        self.add_item(ui.Button(
+        )
+        self.vote_btn.callback = self.vote_callback
+        self.add_item(self.vote_btn)
+        
+        # Session Start button
+        self.start_btn = ui.Button(
             label="Session Startup",
             style=nextcord.ButtonStyle.primary,
             custom_id="session_start"
-        ))
-        self.add_item(ui.Button(
+        )
+        self.start_btn.callback = self.start_callback
+        self.add_item(self.start_btn)
+        
+        # Session Shutdown button
+        self.shutdown_btn = ui.Button(
             label="Session Shutdown",
             style=nextcord.ButtonStyle.primary,
             custom_id="session_shutdown"
-        ))
-        self.add_item(ui.Button(
+        )
+        self.shutdown_btn.callback = self.shutdown_callback
+        self.add_item(self.shutdown_btn)
+        
+        # Session Low button
+        self.low_btn = ui.Button(
             label="Session Low",
             style=nextcord.ButtonStyle.primary,
             custom_id="session_low"
-        ))
-        self.add_item(ui.Button(
+        )
+        self.low_btn.callback = self.low_callback
+        self.add_item(self.low_btn)
+        
+        # Session Full button
+        self.full_btn = ui.Button(
             label="Session Full",
             style=nextcord.ButtonStyle.primary,
             custom_id="session_full"
-        ))
-        self.add_item(ui.Button(
+        )
+        self.full_btn.callback = self.full_callback
+        self.add_item(self.full_btn)
+        
+        # Session History button
+        self.history_btn = ui.Button(
             label="Sessions History",
             style=nextcord.ButtonStyle.secondary,
             custom_id="session_history"
-        ))
+        )
+        self.history_btn.callback = self.history_callback
+        self.add_item(self.history_btn)
+    
+    async def vote_callback(self, interaction: nextcord.Interaction):
+        # Check if user has management role
+        if not has_management_role(interaction.user):
+            await interaction.response.send_message(f"{interaction.user.mention}: You don't have permission to use this!", ephemeral=True)
+            return
+        
+        if session_state.is_active:
+            await interaction.response.send_message(f"<@{interaction.user.id}> has already started a session, hence that action cannot occur.", ephemeral=False)
+            return
+        
+        if not can_start_vote():
+            await interaction.response.send_message(f"<@{interaction.user.id}> has already ended a session, hence that action cannot occur.", ephemeral=False)
+            return
+        
+        modal = SessionVoteModal()
+        await interaction.response.send_modal(modal)
+    
+    async def start_callback(self, interaction: nextcord.Interaction):
+        # Check if user has management role
+        if not has_management_role(interaction.user):
+            await interaction.response.send_message(f"{interaction.user.mention}: You don't have permission to use this!", ephemeral=True)
+            return
+        
+        if session_state.is_active:
+            await interaction.response.send_message(f"<@{interaction.user.id}> has already started a session, hence that action cannot occur.", ephemeral=False)
+            return
+        
+        if not can_start_session(interaction.user.id):
+            await interaction.response.send_message(f"<@{interaction.user.id}> has already started a session, hence that action cannot occur.", ephemeral=False)
+            return
+        
+        # Start the session
+        session_state.is_active = True
+        session_state.session_start_time = time.time()
+        session_state.last_session_low_time = None
+        session_state.session_initiator_id = interaction.user.id
+        session_state.last_vote_time = time.time()
+        
+        # Get staff count
+        guild = bot.get_guild(GUILD_ID)
+        staff_count = 0
+        if guild:
+            staff_role = guild.get_role(STAFF_ROLE_ID)
+            if staff_role:
+                staff_count = len(staff_role.members)
+        
+        session_channel = bot.get_channel(SESSION_CHANNEL_ID)
+        
+        if session_channel:
+            # Delete messages except preserved one
+            try:
+                async for message in session_channel.history(limit=100):
+                    if message.id != PRESERVED_MESSAGE_ID:
+                        try:
+                            await message.delete()
+                        except:
+                            pass
+            except:
+                pass
+            
+            # Ping outside embed first
+            await session_channel.send(f"<@&{SESSION_ROLE_ID}>")
+            
+            # Send session start embed
+            embed = nextcord.Embed(
+                color=0x47a88f,
+                title="__Session Has Started__"
+            )
+            embed.description = f"""> After enough votes, or direct action by a Management member, a session has begun. Please refer to below for statistics.
+
+> - ER:LC In-Game: N/A  
+> - Staff Online: {staff_count}
+> - ER:LC Code: LCsRp
+"""
+            await session_channel.send(embed=embed)
+            
+            # Send session voters list
+            if session_state.session_voters:
+                voters_mentions = " ".join(session_state.session_voters)
+                await session_channel.send(f"Session Voters: {voters_mentions}")
+        
+        add_to_history("Session Started", interaction.user)
+        
+        await interaction.response.send_message("Session has been started!", ephemeral=True)
+    
+    async def shutdown_callback(self, interaction: nextcord.Interaction):
+        # Check if user has management role
+        if not has_management_role(interaction.user):
+            await interaction.response.send_message(f"{interaction.user.mention}: You don't have permission to use this!", ephemeral=True)
+            return
+        
+        if not session_state.is_active:
+            await interaction.response.send_message(f"<@{interaction.user.id}> has already ended a session, hence that action cannot occur.", ephemeral=False)
+            return
+        
+        session_state.is_active = False
+        session_state.session_start_time = None
+        session_state.session_voters = []
+        session_state.session_initiator_id = None
+        session_state.vote_count_needed = 0
+        session_state.vote_message_id = None
+        session_state.pending_confirmation = False
+        session_state.last_shutdown_time = time.time()
+        
+        session_channel = bot.get_channel(SESSION_CHANNEL_ID)
+        
+        if session_channel:
+            # Delete messages except preserved one
+            try:
+                async for message in session_channel.history(limit=100):
+                    if message.id != PRESERVED_MESSAGE_ID:
+                        try:
+                            await message.delete()
+                        except:
+                            pass
+            except:
+                pass
+            
+            # Send shutdown message
+            await session_channel.send("__Session Shutdown__\n\nA session has been shutdown in Liberty County State Roleplay Community [LCSRC]. Thanks for joining us on a good session. See you soon!")
+        
+        add_to_history("Session Shutdown", interaction.user)
+        
+        await interaction.response.send_message("Session has been shutdown!", ephemeral=True)
+    
+    async def low_callback(self, interaction: nextcord.Interaction):
+        # Check if user has management role
+        if not has_management_role(interaction.user):
+            await interaction.response.send_message(f"{interaction.user.mention}: You don't have permission to use this!", ephemeral=True)
+            return
+        
+        if not session_state.is_active:
+            await interaction.response.send_message(f"<@{interaction.user.id}> has already ended a session, hence that action cannot occur.", ephemeral=False)
+            return
+        
+        if not can_run_session_low():
+            await interaction.response.send_message("Session Low is on cooldown. Please wait before using it again.", ephemeral=True)
+            return
+        
+        session_state.last_session_low_time = time.time()
+        
+        session_channel = bot.get_channel(SESSION_CHANNEL_ID)
+        
+        if session_channel:
+            await session_channel.send(f"<@&{SESSION_ROLE_ID}> Session is currently low on members. Please invite more players!")
+        
+        add_to_history("Session Low", interaction.user)
+        
+        await interaction.response.send_message("Session Low message sent!", ephemeral=True)
+    
+    async def full_callback(self, interaction: nextcord.Interaction):
+        # Check if user has management role
+        if not has_management_role(interaction.user):
+            await interaction.response.send_message(f"{interaction.user.mention}: You don't have permission to use this!", ephemeral=True)
+            return
+        
+        if not session_state.is_active:
+            await interaction.response.send_message(f"<@{interaction.user.id}> has already ended a session, hence that action cannot occur.", ephemeral=False)
+            return
+        
+        session_channel = bot.get_channel(SESSION_CHANNEL_ID)
+        
+        if session_channel:
+            await session_channel.send("Session is now full!")
+        
+        add_to_history("Session Full", interaction.user)
+        
+        await interaction.response.send_message("Session Full message sent!", ephemeral=True)
+    
+    async def history_callback(self, interaction: nextcord.Interaction):
+        # Check if user has management role
+        if not has_management_role(interaction.user):
+            await interaction.response.send_message(f"{interaction.user.mention}: You don't have permission to use this!", ephemeral=True)
+            return
+        
+        if not session_state.session_history:
+            embed = nextcord.Embed(
+                title="Session History",
+                description="No session history available.",
+                color=0x47a88f
+            )
+        else:
+            history_text = ""
+            for entry in session_state.session_history:
+                history_text += f"**{entry['user']}** - {entry['action']} - <t:{int(time.mktime(datetime.strptime(entry['timestamp'], '%Y-%m-%d %H:%M:%S').timetuple()))}:f>\n"
+            
+            embed = nextcord.Embed(
+                title="Session History",
+                description=history_text,
+                color=0x47a88f
+            )
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # ============== VOTE CONFIRMATION VIEW ==============
 class VoteConfirmView(ui.View):
@@ -691,68 +907,29 @@ Otherwise, have a fantastic day, and we hope to see you interact with our commun
 async def on_ready():
     print(f"✅ Bot is online: {bot.user}")
     
+    # Sync slash commands to the guild
+    try:
+        guild = bot.get_guild(GUILD_ID)
+        if guild:
+            # Sync all slash commands to this guild
+            bot.add_view(SessionView())
+            await bot.sync_application_commands(guild=guild)
+            print(f"✅ Slash commands synced to guild: {guild.name}")
+        else:
+            print(f"❌ Guild not found for syncing!")
+            # Still add the view
+            bot.add_view(SessionView())
+    except Exception as e:
+        print(f"⚠️ Error syncing commands: {e}")
+        bot.add_view(SessionView())
+    
     # Register session view persistently
     bot.add_view(SessionView())
     
     # Start auto-shutdown task
     asyncio.create_task(check_auto_shutdown())
     
-    try:
-        await bot.wait_until_ready()
-        
-        dm_message = """If you have been DMed this message: a SHR member in Liberty County State Roleplay Community [LCSRC] has ran a new bot deployment, which means changes have been made.
-
-# __New Bot Automation Changelog #002__
-
-Greetings SHR and Leadership,
-
-This is a message sent by Assistant Chairman, Pyradex letting you know that the bot has received some changes.
-
-> - The bot has received an additional command [/sessions and >sessions].
-> - Everything is integrated except live ER:LC api data: to be done soon. 
-> - Session Panel essentially allows you to do voting, start up, shutdown, etc.
-> - Use the command to explore more!
-
-Any questions regarding this change can be directed to my Direct Messages, or you can ping me in staff-chat. Have a great night.
-
-Regards,
-Assistant Chairman
-Pyradex"""
-        role_ids_to_dm = [1470596842776559699]
-        
-        guild = bot.get_guild(GUILD_ID)
-        
-        if guild:
-            print(f"📋 Guild found: {guild.name}")
-            
-            try:
-                await guild.chunk()
-                print(f"📋 Members chunked. Total members: {len(guild.members)}")
-            except Exception as e:
-                print(f"⚠️ Chunk error: {e}")
-            
-            members_to_dm = []
-            for member in guild.members:
-                for role in member.roles:
-                    if role.id in role_ids_to_dm:
-                        if member not in members_to_dm:
-                            members_to_dm.append(member)
-                        break
-            
-            print(f"📋 Found {len(members_to_dm)} members with SHR roles")
-            
-            for member in members_to_dm:
-                try:
-                    await member.send(dm_message)
-                    print(f"✅ DM sent successfully to {member.name} ({member.id})")
-                except Exception as e:
-                    print(f"❌ Failed to send DM to {member.name} ({member.id}): {e}")
-            
-            print(f"📬 Completed sending DMs to {len(members_to_dm)} members")
-        else:
-            print(f"❌ Guild not found! Check guild ID.")
-    except Exception as e:
-        print(f"❌ Error in on_ready: {e}")
+    print(f"🤖 Bot ready for use!")
 
 @bot.event
 async def on_connect():
@@ -795,7 +972,8 @@ async def sessions_command(ctx):
 """
     
     view = SessionView()
-    await ctx.send(embed=embed, view=view)
+    # Send as ephemeral/private message
+    await ctx.send(embed=embed, view=view, ephemeral=True)
 
 # /sessions slash command
 @bot.slash_command(name="sessions", description="Manage session panel", guild_ids=[GUILD_ID])
