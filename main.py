@@ -1021,18 +1021,15 @@ async def on_ready():
     try:
         guild = bot.get_guild(GUILD_ID)
         if guild:
-            # Clear and register all application commands
-            bot.clear_application_commands(guild_id=GUILD_ID)
-            
-            # Register slash commands manually
-            await bot.register_application_commands(guild=guild)
-            print(f"✅ Slash commands registered to guild: {guild.name}")
+            # Sync application commands to the guild
+            await bot.sync_application_commands(guild=guild)
+            print(f"✅ Slash commands synced to guild: {guild.name}")
         else:
             print(f"❌ Guild not found for command registration!")
     except Exception as e:
-        print(f"⚠️ Error registering commands: {e}")
+        print(f"⚠️ Error syncing commands: {e}")
     
-# Register session view persistently
+    # Register session view persistently
     bot.add_view(SessionView(initiator_id=None))
     
     # Start auto-shutdown task
@@ -1071,7 +1068,8 @@ async def sessions_command(ctx):
 """
     
     view = SessionView(initiator_id=ctx.author.id)
-    # Send as reply to user and store message ID
+    # Send the panel to the user
+    await ctx.send(embed=embed, view=view)
 
 # /sessions slash command
 @bot.slash_command(name="sessions", description="Manage session panel", guild_ids=[GUILD_ID])
@@ -1100,12 +1098,8 @@ async def slash_sessions(interaction: nextcord.Interaction):
 """
     
     view = SessionView(initiator_id=interaction.user.id)
-    response_msg = await interaction.response.send_message(embed=embed, view=view)
-    # Store message ID for the panel - need to fetch it from the original message
-    if hasattr(interaction, 'message') and interaction.message:
-        session_panel_messages[interaction.message.id] = interaction.user.id
-    elif hasattr(response_msg, 'id'):
-        session_panel_messages[response_msg.id] = interaction.user.id
+    # Send the panel and get the response
+    await interaction.response.send_message(embed=embed, view=view)
 
 # /say slash command (replaces /message)
 @bot.slash_command(name="say", description="Send a message via the bot", guild_ids=[GUILD_ID])
@@ -1168,6 +1162,87 @@ async def slash_say(
                 await interaction.response.send_message(paragraph)
             else:
                 await interaction.response.send_message("Please provide content for advanced mode.", ephemeral=True)
+
+# /role slash command - Add or remove a role from a user
+@bot.slash_command(name="role", description="Add or remove a role from a user", guild_ids=[GUILD_ID])
+async def slash_role(
+    interaction: nextcord.Interaction,
+    user: nextcord.Member = SlashOption(
+        name="user",
+        description="User to add/remove role from",
+        required=True
+    ),
+    role: nextcord.Role = SlashOption(
+        name="role",
+        description="Role to add or remove",
+        required=True
+    )
+):
+    """Slash command to add or remove a role from a user"""
+    # Check if user has permitted role
+    if not has_management_role(interaction.user):
+        await interaction.response.send_message(
+            f"{interaction.user.mention}: As you are not Management, you are not permitted to use this command ⚠️.",
+            ephemeral=True
+        )
+        return
+    
+    # Check if user has the role
+    if role in user.roles:
+        # Remove the role
+        await user.remove_roles(role)
+        action = "removed"
+        response = f"-role {role.name} removed."
+        
+        # Send DM to user about role removal
+        try:
+            dm_embed = nextcord.Embed(
+                color=0xff6b6b,
+                title="Role Removed"
+            )
+            dm_embed.description = f"**Role:** {role.name}\n\n**Action taken by:** {interaction.user.display_name}"
+            await user.send(embed=dm_embed)
+        except:
+            pass  # If DM fails, continue anyway
+    else:
+        # Add the role
+        await user.add_roles(role)
+        action = "added"
+        response = f"+role {role.name} added."
+        
+        # Send DM to user about role addition
+        try:
+            dm_embed = nextcord.Embed(
+                color=0x47a88f,
+                title="Role Added"
+            )
+            dm_embed.description = f"**Role:** {role.name}\n\n**Action taken by:** {interaction.user.display_name}"
+            await user.send(embed=dm_embed)
+        except:
+            pass  # If DM fails, continue anyway
+    
+    await interaction.response.send_message(response, ephemeral=True)
+
+# /message slash command - Send a message via the bot
+@bot.slash_command(name="message", description="Send a message via the bot", guild_ids=[GUILD_ID])
+async def slash_message(
+    interaction: nextcord.Interaction,
+    text: str = SlashOption(
+        name="text",
+        description="Message text to send",
+        required=True
+    )
+):
+    """Slash command to send a plain text message"""
+    # Check if user has permitted role
+    if not has_management_role(interaction.user):
+        await interaction.response.send_message(
+            f"{interaction.user.mention}: As you are not a Senior High Rank, you are not permitted to use this command ⚠️.",
+            ephemeral=True
+        )
+        return
+    
+    await interaction.response.send_message(text)
 
 # >message command - plain text simple message (kept for backwards compatibility)
 @bot.command(name="message")
