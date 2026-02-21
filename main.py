@@ -52,6 +52,28 @@ SESSION_LOW_COOLDOWN = 10 * 60  # 10 minutes
 AUTO_SHUTDOWN_INITIAL = 2 * 60 * 60  # 2 hours
 AUTO_SHUTDOWN_GRACE_PERIOD = 60 * 60  # 1 hour
 
+# Inappropriate words filter list
+INAPPROPRIATE_WORDS = [
+    "nigger", "nigga", "faggot", "faggot", "fag", "retard", "retarded",
+    "cunt", "c0unt", "bitch", "b1tch", "bitch", "whore", "slut",
+    "fucker", "fuck", "fuk", "shit", "shit", "bullshit", "bs",
+    "damn", "dammit", "hell", "ass", "asshole", "a$$", "a**",
+    "bastard", "dick", "cock", "pussy", "cunt", "sex",
+    "rape", "rapist", "molest", "pedophile", "pedo", "nazi",
+    "terrorist", "kill", "murder", "die", "suicide"
+]
+
+def contains_inappropriate_words(text: str) -> bool:
+    """Check if text contains inappropriate words"""
+    text_lower = text.lower()
+    # Remove common leetspeak substitutions for filtering
+    text_filtered = text_lower.replace("1", "i").replace("0", "o").replace("3", "e").replace("4", "a").replace("5", "s").replace("@", "a").replace("$", "s")
+    
+    for word in INAPPROPRIATE_WORDS:
+        if word in text_filtered:
+            return True
+    return False
+
 # ============== GLOBAL STATE ==============
 class SessionState:
     def __init__(self):
@@ -1147,10 +1169,27 @@ async def slash_say(
             await interaction.response.send_message("Please provide text for simple mode.", ephemeral=True)
             return
         
+        # Check for inappropriate words
+        if contains_inappropriate_words(text):
+            await interaction.response.send_message(
+                "⚠️ Your message contains inappropriate content and cannot be sent.",
+                ephemeral=True
+            )
+            return
+        
         await interaction.response.send_message(text)
     
     elif message_type == "advanced":
         if embed:
+            # Check for inappropriate words in both title and paragraph
+            check_text = f"{title or ''} {paragraph or ''}"
+            if contains_inappropriate_words(check_text):
+                await interaction.response.send_message(
+                    "⚠️ Your message contains inappropriate content and cannot be sent.",
+                    ephemeral=True
+                )
+                return
+            
             embed_obj = nextcord.Embed(
                 color=0x47a88f,
                 title=title if title else None,
@@ -1159,6 +1198,13 @@ async def slash_say(
             await interaction.response.send_message(embed=embed_obj)
         else:
             if paragraph:
+                # Check for inappropriate words
+                if contains_inappropriate_words(paragraph):
+                    await interaction.response.send_message(
+                        "⚠️ Your message contains inappropriate content and cannot be sent.",
+                        ephemeral=True
+                    )
+                    return
                 await interaction.response.send_message(paragraph)
             else:
                 await interaction.response.send_message("Please provide content for advanced mode.", ephemeral=True)
@@ -1242,6 +1288,14 @@ async def slash_message(
         )
         return
     
+    # Check for inappropriate words
+    if contains_inappropriate_words(text):
+        await interaction.response.send_message(
+            "⚠️ Your message contains inappropriate content and cannot be sent.",
+            ephemeral=True
+        )
+        return
+    
     await interaction.response.send_message(text)
 
 # >message command - plain text simple message (kept for backwards compatibility)
@@ -1262,6 +1316,12 @@ async def message_command(ctx, *, message_text: str = None):
         await ctx.send("Please provide a message to send.", ephemeral=True)
         return
     
+    # Check for inappropriate words
+    if contains_inappropriate_words(message_text):
+        error_msg = await ctx.send("⚠️ Your message contains inappropriate content and cannot be sent.")
+        await error_msg.delete(delay=10)
+        return
+    
     try:
         await ctx.message.delete()
     except:
@@ -1280,6 +1340,12 @@ async def dmuser_command(ctx, user: nextcord.Member, *, message: str):
         except:
             pass
         error_msg = await ctx.send(f"{ctx.author.mention}: As you are not Management, you are not permitted to use this command ⚠️.")
+        await error_msg.delete(delay=10)
+        return
+    
+    # Check for inappropriate words
+    if contains_inappropriate_words(message):
+        error_msg = await ctx.send("⚠️ Your message contains inappropriate content and cannot be sent.")
         await error_msg.delete(delay=10)
         return
     
