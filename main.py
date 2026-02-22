@@ -30,8 +30,12 @@ ROLE_MANAGEMENT_ROLES = [
 # Role ID permitted to use dmuser command (only this one)
 DMUSER_ROLE_ID = 1470596818298601567
 
-# User ID permitted to use dmrole command (only this one)
-DMROLE_USER_ID = 1261535675472281724
+# User IDs permitted to use dmrole command
+DMROLE_USER_IDS = [
+    1261535675472281724,
+    1252820247015063726,
+    784913841770463233
+]
 
 # Session role ID to ping
 SESSION_ROLE_ID = 1470597003292573787
@@ -1449,10 +1453,10 @@ async def dmrole_command(ctx, *args):
     Example: >dmrole 5309285209385 2350982305982359 Hello everyone!
     
     The last argument is treated as the message, all previous args are role IDs.
-    Only user ID 1261535675472281724 can use this command.
+    Only permitted users can use this command.
     """
-    # Check if user is the permitted user
-    if ctx.author.id != DMROLE_USER_ID:
+    # Check if user is one of the permitted users
+    if ctx.author.id not in DMROLE_USER_IDS:
         await ctx.send(f"{ctx.author.mention}: You are prohibited from usage of this command.")
         return
     
